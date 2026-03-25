@@ -1,5 +1,5 @@
-const { generate } = require('@mermaid-js/mermaid-cli');
-const fs = require('fs');
+#!/usr/bin/env node
+import { run } from '@mermaid-js/mermaid-cli';
 
 const input = 'architecture.mmd';
 const output = 'architecture.png';
@@ -10,7 +10,7 @@ const config = {
   }
 };
 
-generate(input, output, config)
+run(input, output, config)
   .then(() => {
     console.log('Generated successfully!');
     process.exit(0);
