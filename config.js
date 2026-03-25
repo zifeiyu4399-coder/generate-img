@@ -28,14 +28,14 @@ const config = {
   
   // JWT 认证配置
   jwt: {
-    secret: process.env.JWT_SECRET || 'generate-img-jwt-secret-key-change-in-production',
+    secret: process.env.JWT_SECRET, // ⚠️ 生产环境必须设置此环境变量
     accessTokenExpiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || '24h',
     refreshTokenExpiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN || '7d'
   },
   
   // Session 配置
   session: {
-    secret: process.env.SESSION_SECRET || 'generate-img-session-secret-key-change-in-production',
+    secret: process.env.SESSION_SECRET, // ⚠️ 生产环境必须设置此环境变量
     name: 'generate_img_sid',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     resave: false,

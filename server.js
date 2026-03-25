@@ -55,8 +55,39 @@ app.use(express.json({ limit: '10mb' }));
 // 可选认证中间件（适用于所有 API）
 app.use('/api', optionalAuth);
 
+// 检查安全配置
+function checkSecurityConfig() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  if (isProduction) {
+    if (!config.jwt.secret) {
+      console.error('❌ 生产环境必须设置 JWT_SECRET 环境变量！');
+      process.exit(1);
+    }
+    if (!config.session.secret) {
+      console.error('❌ 生产环境必须设置 SESSION_SECRET 环境变量！');
+      process.exit(1);
+    }
+    
+    if (!process.env.MYSQL_PASSWORD) {
+      console.warn('⚠️ 生产环境建议设置 MYSQL_PASSWORD 环境变量');
+    }
+    
+    console.log('✅ 生产环境安全配置检查通过');
+  } else {
+    if (!config.jwt.secret) {
+      console.warn('⚠️ 开发环境未设置 JWT_SECRET，认证功能将受限');
+    }
+    if (!config.session.secret) {
+      console.warn('⚠️ 开发环境未设置 SESSION_SECRET，会话功能将受限');
+    }
+  }
+}
+
 // 初始化数据库和缓存连接
 async function initServices() {
+  checkSecurityConfig();
+  
   const mysqlOk = await testConnection();
   const redisOk = await initCache();
   
