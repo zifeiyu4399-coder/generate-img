@@ -10,6 +10,11 @@ import config from './config.js';
 import { testConnection, createJob, updateJobStatus, getJob, getJobs, deleteJob } from './db.js';
 import { initCache, getCachedJob, cacheJob, deleteCachedJob, getCachedJobList, cacheJobList, invalidateJobListCache } from './cache.js';
 
+// 预留的认证和支付路由
+import authRoutes from './routes/auth.js';
+import paymentRoutes from './routes/payment.js';
+import { optionalAuth } from './middleware/auth.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -42,6 +47,13 @@ const upload = multer({ storage: storage });
 
 // 解析 JSON 请求体
 app.use(express.json({ limit: '10mb' }));
+
+// 预留的认证和支付路由（暂不启用，后期接入时取消注释）
+// app.use('/api/auth', authRoutes);
+// app.use('/api/payment', paymentRoutes);
+
+// 可选认证中间件（适用于所有 API）
+app.use('/api', optionalAuth);
 
 // 初始化数据库和缓存连接
 async function initServices() {
@@ -450,6 +462,10 @@ const server = app.listen(PORT, () => {
   console.log(`   DELETE /api/images/:filename - Delete generated image`);
   console.log(`   GET  /api/list - List all generated images`);
   console.log(`   GET  /api/health - Health check`);
+  console.log(`🔐 Reserved endpoints (not enabled yet):`);
+  console.log(`   Google Auth: /api/auth/google, /api/auth/google/callback`);
+  console.log(`   PayPal: /api/payment/paypal/create, /api/payment/paypal/webhook`);
+  console.log(`📖 See INTEGRATION_SUMMARY.md for Google Auth & PayPal integration guide`);
 });
 
 export { app, server };

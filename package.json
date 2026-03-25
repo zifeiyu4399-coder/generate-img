@@ -7,7 +7,8 @@
   "scripts": {
     "generate": "node generate.js",
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "db:init": "mysql -u root -p < database/init.sql"
   },
   "dependencies": {
     "@mermaid-js/mermaid-cli": "^10.6.1",
@@ -16,6 +17,14 @@
     "mysql2": "^3.20.0",
     "redis": "^5.11.0",
     "uuid": "^9.0.1"
+  },
+  "optionalDependencies": {
+    "@paypal/checkout-server-sdk": "^1.0.3",
+    "google-auth-library": "^9.0.0",
+    "jsonwebtoken": "^9.0.0",
+    "express-session": "^1.17.0",
+    "passport": "^0.6.0",
+    "passport-google-oauth20": "^2.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
@@ -26,7 +35,9 @@
     "image",
     "diagram",
     "api",
-    "rest"
+    "rest",
+    "google-auth",
+    "paypal"
   ],
   "author": "",
   "license": "MIT"

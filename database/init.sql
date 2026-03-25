@@ -191,6 +191,95 @@ CREATE TABLE IF NOT EXISTS jobs (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生成任务表';
 
+-- 8. 用户 OAuth 认证表 (user_oauth_accounts)
+CREATE TABLE IF NOT EXISTS user_oauth_accounts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '认证记录ID',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  provider VARCHAR(50) NOT NULL COMMENT '认证提供商: google, github, wechat, alipay等',
+  provider_user_id VARCHAR(255) NOT NULL COMMENT '第三方提供商用户ID',
+  provider_username VARCHAR(255) COMMENT '第三方用户名',
+  email VARCHAR(100) COMMENT '第三方邮箱',
+  avatar_url VARCHAR(500) COMMENT '第三方头像URL',
+  access_token TEXT COMMENT '访问令牌',
+  refresh_token TEXT COMMENT '刷新令牌',
+  token_expires_at TIMESTAMP NULL COMMENT '令牌过期时间',
+  scope VARCHAR(500) COMMENT '授权范围',
+  status TINYINT DEFAULT 1 COMMENT '状态: 0-解绑, 1-正常绑定',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  UNIQUE KEY uk_provider_user (provider, provider_user_id),
+  INDEX idx_user_id (user_id),
+  INDEX idx_provider (provider),
+  INDEX idx_status (status),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户OAuth认证表';
+
+-- 9. 支付记录表 (payments)
+CREATE TABLE IF NOT EXISTS payments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '支付记录ID',
+  payment_no VARCHAR(64) UNIQUE NOT NULL COMMENT '支付流水号',
+  order_id BIGINT UNSIGNED NOT NULL COMMENT '关联订单ID',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  payment_provider VARCHAR(50) NOT NULL COMMENT '支付提供商: paypal, wechat, alipay, stripe等',
+  payment_method VARCHAR(50) COMMENT '支付方式: card, paypal_balance等',
+  amount DECIMAL(10,2) NOT NULL COMMENT '支付金额',
+  currency VARCHAR(10) DEFAULT 'USD' COMMENT '货币代码: USD, CNY, EUR等',
+  provider_payment_id VARCHAR(255) COMMENT '第三方支付交易ID',
+  status TINYINT DEFAULT 0 COMMENT '支付状态: 0-待支付, 1-处理中, 2-支付成功, 3-支付失败, 4-已退款',
+  paid_at TIMESTAMP NULL COMMENT '支付完成时间',
+  failure_reason VARCHAR(500) COMMENT '失败原因',
+  refund_amount DECIMAL(10,2) DEFAULT 0 COMMENT '退款金额',
+  refunded_at TIMESTAMP NULL COMMENT '退款时间',
+  extra_data TEXT COMMENT '支付平台返回的额外数据(JSON)',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_payment_no (payment_no),
+  INDEX idx_order_id (order_id),
+  INDEX idx_user_id (user_id),
+  INDEX idx_payment_provider (payment_provider),
+  INDEX idx_status (status),
+  INDEX idx_created_at (created_at),
+  FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付记录表';
+
+-- 10. 支付配置表 (payment_configs)
+CREATE TABLE IF NOT EXISTS payment_configs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '配置ID',
+  provider VARCHAR(50) NOT NULL COMMENT '支付提供商: paypal, wechat, alipay, stripe等',
+  config_name VARCHAR(100) NOT NULL COMMENT '配置名称',
+  config_key VARCHAR(100) NOT NULL COMMENT '配置键',
+  config_value TEXT COMMENT '配置值',
+  config_type VARCHAR(20) DEFAULT 'string' COMMENT '配置类型: string, number, boolean, json',
+  is_encrypted TINYINT DEFAULT 0 COMMENT '是否加密: 0-否, 1-是',
+  is_sensitive TINYINT DEFAULT 0 COMMENT '是否敏感配置: 0-否, 1-是',
+  environment VARCHAR(20) DEFAULT 'production' COMMENT '环境: development, staging, production',
+  status TINYINT DEFAULT 1 COMMENT '状态: 0-禁用, 1-启用',
+  description VARCHAR(500) COMMENT '配置说明',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  UNIQUE KEY uk_provider_config_env (provider, config_key, environment),
+  INDEX idx_provider (provider),
+  INDEX idx_environment (environment),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付配置表';
+
+-- 11. 会话表 (sessions)
+CREATE TABLE IF NOT EXISTS sessions (
+  id VARCHAR(128) PRIMARY KEY COMMENT '会话ID',
+  user_id BIGINT UNSIGNED COMMENT '用户ID(访客为空)',
+  ip_address VARCHAR(45) COMMENT 'IP地址',
+  user_agent VARCHAR(500) COMMENT '用户代理',
+  device_type VARCHAR(20) COMMENT '设备类型',
+  expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
+  data TEXT COMMENT '会话数据(JSON)',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_user_id (user_id),
+  INDEX idx_expires_at (expires_at),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话表';
+
 -- 初始化一些产品数据
 INSERT INTO products (product_code, product_name, product_type, description, price, original_price, points, duration_days, vip_level, sort_order, status, is_hot, is_recommend) VALUES
 ('POINTS_100', '100积分包', 1, '购买即得100积分，可用于图片生成', 9.90, 19.90, 100, NULL, 0, 1, 1, 0, 0),
@@ -200,3 +289,13 @@ INSERT INTO products (product_code, product_name, product_type, description, pri
 ('VIP_QUARTER', '季度VIP会员', 2, '畅享90天VIP特权，无限次生成图片', 79.90, 179.70, 0, 90, 2, 5, 1, 0, 1),
 ('VIP_YEAR', '年度VIP会员', 2, '畅享365天VIP特权，无限次生成图片', 199.00, 718.80, 0, 365, 3, 6, 1, 1, 1),
 ('SINGLE_GENERATE', '单次生成', 3, '单次图片生成服务', 1.00, 2.00, 0, NULL, 0, 7, 1, 0, 0);
+
+-- 初始化支付配置示例数据 (生产环境需要在数据库中设置真实值)
+INSERT INTO payment_configs (provider, config_name, config_key, config_value, config_type, is_sensitive, environment, status, description) VALUES
+('paypal', 'PayPal Client ID', 'client_id', '', 'string', 1, 'production', 0, 'PayPal应用客户端ID'),
+('paypal', 'PayPal Client Secret', 'client_secret', '', 'string', 1, 'production', 0, 'PayPal应用密钥'),
+('paypal', 'PayPal Mode', 'mode', 'sandbox', 'string', 0, 'production', 0, 'PayPal环境: sandbox或live'),
+('paypal', 'PayPal Webhook ID', 'webhook_id', '', 'string', 1, 'production', 0, 'PayPal Webhook ID'),
+('google', 'Google Client ID', 'client_id', '', 'string', 1, 'production', 0, 'Google OAuth客户端ID'),
+('google', 'Google Client Secret', 'client_secret', '', 'string', 1, 'production', 0, 'Google OAuth密钥'),
+('google', 'Google Redirect URI', 'redirect_uri', '', 'string', 0, 'production', 0, 'Google OAuth回调地址');
