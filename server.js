@@ -7,8 +7,9 @@ import multer from 'multer';
 import { fileURLToPath } from 'url';
 
 import config from './config.js';
-import { testConnection, createJob, updateJobStatus, getJob, getJobs, deleteJob } from './db.js';
+import { testConnection, createJob, createJobV2, updateJobStatus, getJob, getJobs, deleteJob, createAliImageGenTask, getAliImageGenTaskByJobId, updateAliImageGenTask, pool } from './db.js';
 import { initCache, getCachedJob, cacheJob, deleteCachedJob, getCachedJobList, cacheJobList, invalidateJobListCache } from './cache.js';
+import AliImageGenerator from './lib/aliImageGenerator.js';
 
 // 预留的认证和支付路由
 import authRoutes from './routes/auth.js';
@@ -411,6 +412,320 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// 初始化阿里千文图片生成器
+let aliImageGenerator = null;
+if (config.aliImageGen.apiKey) {
+  aliImageGenerator = new AliImageGenerator(config.aliImageGen);
+  console.log('✅ 阿里千文图片生成器已初始化');
+} else {
+  console.warn('⚠️ 阿里千文图片生成器未配置 API Key');
+}
+
+/**
+ * @api {post} /api/ali-image-gen/generate 使用阿里千文生成图片
+ * @apiDescription 通过阿里千文 API 生成图片
+ * @apiParam {String} prompt 图片生成提示词
+ * @apiParam {String} [negativePrompt] 负面提示词
+ * @apiParam {String} [size='1024*1024'] 图片尺寸
+ * @apiParam {Number} [n=1] 生成图片数量
+ * @apiParam {Number} [seed] 随机种子
+ * @apiSuccess {Object} 生成任务信息
+ */
+app.post('/api/ali-image-gen/generate', async (req, res) => {
+  try {
+    if (!aliImageGenerator) {
+      return res.status(500).json({
+        success: false,
+        error: '阿里千文图片生成服务未配置'
+      });
+    }
+
+    const { prompt, negativePrompt, size = '1024*1024', n = 1, seed } = req.body;
+
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'prompt is required and must be a string'
+      });
+    }
+
+    const jobId = uuidv4();
+    
+    // 创建数据库记录
+    try {
+      await createJobV2({
+        id: jobId,
+        taskType: 2, // 阿里千文图片生成
+        prompt,
+        negativePrompt,
+        imageSize: size,
+        imageCount: n,
+        seed,
+        status: 'processing'
+      });
+    } catch (dbError) {
+      console.warn('数据库记录创建失败:', dbError.message);
+    }
+
+    // 调用阿里千文 API
+    const result = await aliImageGenerator.generateImage(prompt, {
+      size,
+      n,
+      seed
+    });
+
+    // 创建阿里千文任务详情记录
+    try {
+      await createAliImageGenTask({
+        jobId,
+        aliTaskId: result.taskId,
+        prompt,
+        negativePrompt,
+        imageSize: size,
+        imageCount: n,
+        seed,
+        model: config.aliImageGen.model,
+        apiRequestId: result.requestId
+      });
+    } catch (dbError) {
+      console.warn('阿里千文任务详情记录创建失败:', dbError.message);
+    }
+
+    // 如果是同步返回结果（非异步任务）
+    if (result.status === 'succeeded' && result.results && result.results.length > 0) {
+      // 下载第一张图片保存到本地
+      const firstResult = result.results[0];
+      const imageUrl = firstResult.url;
+      const outputPath = path.join(OUTPUT_DIR, `${jobId}.png`);
+      const localImageUrl = `/api/images/${jobId}.png`;
+
+      try {
+        await aliImageGenerator.downloadImage(imageUrl, outputPath);
+        
+        // 更新任务状态
+        try {
+          await updateJobStatus(jobId, 'completed');
+          const jobData = await getJob(jobId);
+          if (jobData) {
+            await cacheJob(jobId, jobData);
+            await invalidateJobListCache();
+          }
+        } catch (dbError) {
+          console.warn('数据库更新失败:', dbError.message);
+        }
+
+        // 更新阿里千文任务详情
+        try {
+          await updateAliImageGenTask(jobId, {
+            aliTaskId: result.taskId,
+            status: 'succeeded',
+            result_urls: result.results.map(r => r.url)
+          });
+        } catch (dbError) {
+          console.warn('阿里千文任务详情更新失败:', dbError.message);
+        }
+
+        res.json({
+          success: true,
+          jobId,
+          taskId: result.taskId,
+          status: 'completed',
+          imageUrl: localImageUrl,
+          results: result.results,
+          message: 'Image generated successfully'
+        });
+      } catch (downloadError) {
+        console.error('下载图片失败:', downloadError);
+        
+        // 即使下载失败也返回成功，提供原始 URL
+        try {
+          await updateJobStatus(jobId, 'completed');
+        } catch (dbError) {
+          console.warn('数据库更新失败:', dbError.message);
+        }
+
+        res.json({
+          success: true,
+          jobId,
+          taskId: result.taskId,
+          status: 'completed',
+          remoteUrls: result.results.map(r => r.url),
+          message: 'Image generated successfully, but local download failed'
+        });
+      }
+    } else {
+      // 异步任务，返回任务 ID 让客户端轮询
+      res.json({
+        success: true,
+        jobId,
+        taskId: result.taskId,
+        status: 'processing',
+        message: 'Task submitted, please poll for status'
+      });
+    }
+
+  } catch (error) {
+    console.error('Error generating image with Ali Image Gen:', error);
+    
+    // 更新任务状态为失败
+    try {
+      const { jobId } = req.body;
+      if (jobId) {
+        await updateJobStatus(jobId, 'failed', error.message);
+      }
+    } catch (dbError) {
+      console.warn('数据库更新失败:', dbError.message);
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to generate image'
+    });
+  }
+});
+
+/**
+ * @api {get} /api/ali-image-gen/status/:jobId 查询阿里千文生成任务状态
+ * @apiDescription 查询阿里千文图片生成任务状态
+ * @apiParam {String} jobId 任务ID
+ * @apiSuccess {Object} 任务状态
+ */
+app.get('/api/ali-image-gen/status/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    if (!aliImageGenerator) {
+      return res.status(500).json({
+        success: false,
+        error: '阿里千文图片生成服务未配置'
+      });
+    }
+
+    // 先从数据库获取任务信息
+    const job = await getJob(jobId);
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        error: 'Job not found'
+      });
+    }
+
+    // 如果任务已完成或失败，直接返回数据库状态
+    if (job.status === 'completed' || job.status === 'failed') {
+      const aliTask = await getAliImageGenTaskByJobId(jobId);
+      return res.json({
+        success: true,
+        jobId,
+        status: job.status,
+        imageUrl: job.image_url,
+        aliTask: aliTask || null,
+        message: job.status === 'completed' ? 'Task completed' : 'Task failed'
+      });
+    }
+
+    // 从阿里千文 API 查询最新状态
+    const aliTask = await getAliImageGenTaskByJobId(jobId);
+    if (!aliTask || !aliTask.ali_task_id) {
+      return res.json({
+        success: true,
+        jobId,
+        status: job.status,
+        message: 'No Ali task ID found'
+      });
+    }
+
+    const aliStatus = await aliImageGenerator.getTaskStatus(aliTask.ali_task_id);
+
+    // 更新数据库状态
+    if (aliStatus.status === 'succeeded') {
+      // 下载图片
+      if (aliStatus.results && aliStatus.results.length > 0) {
+        const firstResult = aliStatus.results[0];
+        const imageUrl = firstResult.url;
+        const outputPath = path.join(OUTPUT_DIR, `${jobId}.png`);
+        const localImageUrl = `/api/images/${jobId}.png`;
+
+        try {
+          await aliImageGenerator.downloadImage(imageUrl, outputPath);
+          
+          // 更新 jobs 表
+          const updateSql = 'UPDATE jobs SET image_path = ?, image_url = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+          await pool.execute(updateSql, [outputPath, localImageUrl, 'completed', jobId]);
+          
+          // 更新阿里千文任务表
+          await updateAliImageGenTask(jobId, {
+            status: 'succeeded',
+            result_urls: aliStatus.results.map(r => r.url)
+          });
+
+          // 缓存更新
+          const jobData = await getJob(jobId);
+          if (jobData) {
+            await cacheJob(jobId, jobData);
+            await invalidateJobListCache();
+          }
+
+          return res.json({
+            success: true,
+            jobId,
+            status: 'completed',
+            imageUrl: localImageUrl,
+            results: aliStatus.results,
+            message: 'Task completed'
+          });
+        } catch (downloadError) {
+          console.error('下载图片失败:', downloadError);
+          
+          // 即使下载失败也标记为完成
+          await updateJobStatus(jobId, 'completed');
+          await updateAliImageGenTask(jobId, {
+            status: 'succeeded',
+            result_urls: aliStatus.results.map(r => r.url)
+          });
+
+          return res.json({
+            success: true,
+            jobId,
+            status: 'completed',
+            remoteUrls: aliStatus.results.map(r => r.url),
+            message: 'Task completed, but local download failed'
+          });
+        }
+      }
+    } else if (aliStatus.status === 'failed') {
+      await updateJobStatus(jobId, 'failed', aliStatus.message || 'Ali Image Gen task failed');
+      await updateAliImageGenTask(jobId, {
+        status: 'failed',
+        error_message: aliStatus.message
+      });
+
+      return res.json({
+        success: true,
+        jobId,
+        status: 'failed',
+        error: aliStatus.message,
+        message: 'Task failed'
+      });
+    }
+
+    // 仍在处理中
+    res.json({
+      success: true,
+      jobId,
+      status: 'processing',
+      aliStatus: aliStatus.status,
+      message: 'Task is still processing'
+    });
+
+  } catch (error) {
+    console.error('Error checking Ali Image Gen status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to check task status'
+    });
+  }
+});
+
 /**
  * @api {get} /api/list 列出所有生成的图片
  * @apiDescription 获取所有已生成的图片列表
@@ -493,6 +808,9 @@ const server = app.listen(PORT, () => {
   console.log(`   DELETE /api/images/:filename - Delete generated image`);
   console.log(`   GET  /api/list - List all generated images`);
   console.log(`   GET  /api/health - Health check`);
+  console.log(`🎨 Ali Image Gen endpoints:`);
+  console.log(`   POST /api/ali-image-gen/generate - Generate image with Ali Image Gen`);
+  console.log(`   GET  /api/ali-image-gen/status/:jobId - Check Ali Image Gen task status`);
   console.log(`🔐 Reserved endpoints (not enabled yet):`);
   console.log(`   Google Auth: /api/auth/google, /api/auth/google/callback`);
   console.log(`   PayPal: /api/payment/paypal/create, /api/payment/paypal/webhook`);

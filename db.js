@@ -24,7 +24,7 @@ export async function testConnection() {
 // ============================================
 
 /**
- * 创建任务记录
+ * 创建任务记录（原始版本 - 向后兼容）
  */
 export async function createJob(jobData) {
   const { id, mermaidContent, originalFilename, imagePath, imageUrl, status = 'pending' } = jobData;
@@ -33,6 +33,27 @@ export async function createJob(jobData) {
     VALUES (?, ?, ?, ?, ?, ?)
   `;
   await pool.execute(sql, [id, mermaidContent || null, originalFilename || null, imagePath || null, imageUrl || null, status]);
+}
+
+/**
+ * 增强版本的 createJob 函数，支持新字段
+ */
+export async function createJobV2(jobData) {
+  const { 
+    id, taskType = 1, mermaidContent, prompt, negativePrompt, 
+    originalFilename, imagePath, imageUrl, status = 'pending',
+    imageSize, imageCount, seed, aliTaskId 
+  } = jobData;
+  const sql = `
+    INSERT INTO jobs (id, task_type, mermaid_content, prompt, negative_prompt, original_filename, image_path, image_url, status, image_size, image_count, seed, ali_task_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  await pool.execute(sql, [
+    id, taskType, mermaidContent || null, prompt || null, 
+    negativePrompt || null, originalFilename || null, 
+    imagePath || null, imageUrl || null, status,
+    imageSize || null, imageCount || null, seed || null, aliTaskId || null
+  ]);
 }
 
 /**
@@ -458,5 +479,67 @@ export async function cleanExpiredSessions() {
   await pool.execute(sql);
 }
 
-export { pool };
+// ============================================
+// 阿里千文图片生成任务相关操作 (ali_image_gen_tasks)
+// ============================================
 
+/**
+ * 创建阿里千文图片生成任务记录
+ */
+export async function createAliImageGenTask(taskData) {
+  const { jobId, aliTaskId, prompt, negativePrompt, imageSize, imageCount, seed, model, apiRequestId } = taskData;
+  const sql = `
+    INSERT INTO ali_image_gen_tasks (job_id, ali_task_id, prompt, negative_prompt, image_size, image_count, seed, model, api_request_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  const [result] = await pool.execute(sql, [
+    jobId, aliTaskId || null, prompt, negativePrompt || null, 
+    imageSize || '1024*1024', imageCount || 1, seed || null, 
+    model || null, apiRequestId || null
+  ]);
+  return result.insertId;
+}
+
+/**
+ * 通过 job_id 获取阿里千文任务
+ */
+export async function getAliImageGenTaskByJobId(jobId) {
+  const sql = 'SELECT * FROM ali_image_gen_tasks WHERE job_id = ?';
+  const [rows] = await pool.execute(sql, [jobId]);
+  if (rows[0] && rows[0].result_urls) {
+    try {
+      rows[0].result_urls = JSON.parse(rows[0].result_urls);
+    } catch (e) {
+      rows[0].result_urls = null;
+    }
+  }
+  return rows[0] || null;
+}
+
+/**
+ * 更新阿里千文任务状态和结果
+ */
+export async function updateAliImageGenTask(jobId, updateData) {
+  const updates = [];
+  const values = [];
+  
+  const allowedFields = ['ali_task_id', 'status', 'error_message', 'result_urls'];
+  
+  for (const field of allowedFields) {
+    if (updateData[field] !== undefined) {
+      const dbField = field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      updates.push(`${dbField} = ?`);
+      values.push(field === 'result_urls' && Array.isArray(updateData[field]) 
+        ? JSON.stringify(updateData[field]) 
+        : updateData[field]);
+    }
+  }
+  
+  if (updates.length === 0) return;
+  
+  values.push(jobId);
+  const sql = `UPDATE ali_image_gen_tasks SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?`;
+  await pool.execute(sql, values);
+}
+
+export { pool };

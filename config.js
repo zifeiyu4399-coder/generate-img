@@ -58,6 +58,14 @@ const config = {
     webhookId: process.env.PAYPAL_WEBHOOK_ID || '',
     returnUrl: process.env.PAYPAL_RETURN_URL || '/api/paypal/success',
     cancelUrl: process.env.PAYPAL_CANCEL_URL || '/api/paypal/cancel'
+  },
+  
+  // 阿里千文图片生成 API 配置
+  aliImageGen: {
+    apiKey: process.env.ALI_IMAGE_GEN_API_KEY || '',
+    apiUrl: process.env.ALI_IMAGE_GEN_API_URL || 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis',
+    model: process.env.ALI_IMAGE_GEN_MODEL || 'wanx-v1',
+    timeout: parseInt(process.env.ALI_IMAGE_GEN_TIMEOUT || '30000', 10)
   }
 };
 
