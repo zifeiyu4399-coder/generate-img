@@ -1,0 +1,23 @@
+graph TB
+    A[用户浏览器<br/>Visitor] --> B[Vercel Edge CDN<br/>全球边缘加速]
+    B --> C[Next.js 前端<br/>React + TailwindCSS]
+    C --> D[Next.js API Routes<br/>无服务器后端]
+    
+    D --> E[OpenAI DALL·E 3 API<br/>AI生成缩略图]
+    D --> F[Cloudflare R2 / Vercel Blob<br/>图片存储]
+    D --> G[Stripe<br/>支付订阅计费]
+    D --> H[Auth0<br/>用户认证]
+    
+    G --> I[(Supabase PostgreSQL<br/>用户/订单/积分数据)]
+    H --> I
+    F --> I
+    
+    style A fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style B fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style C fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style D fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style E fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style F fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style G fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style H fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style I fill:#fce4ec,stroke:#ad1457,stroke-width:2px

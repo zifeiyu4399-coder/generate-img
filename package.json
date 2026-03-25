@@ -1,0 +1,16 @@
+
+{
+  "name": "generate-img",
+  "version": "1.0.0",
+  "description": "Generate image from mermaid diagram",
+  "main": "generate.js",
+  "scripts": {
+    "generate": "node generate.js"
+  },
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "^10.6.1"
+  },
+  "keywords": ["mermaid", "generate", "image", "diagram"],
+  "author": "",
+  "license": "MIT"
+}
